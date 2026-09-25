@@ -1,0 +1,5 @@
+Flask
+duckduckgo-search
+requests
+yt-dlp
+gunicorn
