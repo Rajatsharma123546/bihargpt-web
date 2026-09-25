@@ -1,0 +1,1434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BiharGPT</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom scrollbar to look like ChatGPT Light */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+        
+        textarea::placeholder {
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            overflow: hidden;
+        }
+        
+        .card-hover { transition: transform 0.2s, box-shadow 0.2s; }
+        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+        
+        /* Agent Loading Animation */
+        @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes pulse-ring { 0% { transform: scale(0.8); opacity: 1; } 100% { transform: scale(1.4); opacity: 0; } }
+        @keyframes spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        
+        .agent-step { animation: fadeInUp 0.4s ease-out forwards; opacity: 0; }
+        .agent-step:nth-child(1) { animation-delay: 0s; }
+        .agent-step:nth-child(2) { animation-delay: 2s; }
+        .agent-step:nth-child(3) { animation-delay: 5s; }
+        .agent-step:nth-child(4) { animation-delay: 8s; }
+        
+        .shimmer-bar {
+            background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+        .pulse-dot {
+            position: relative;
+        }
+        .pulse-dot::before {
+            content: '';
+            position: absolute;
+            inset: -3px;
+            border-radius: 50%;
+            border: 2px solid currentColor;
+            animation: pulse-ring 1.5s ease-out infinite;
+        }
+        .spin-icon { animation: spin-slow 2s linear infinite; }
+    </style>
+</head>
+<body class="bg-white text-gray-800 h-screen flex overflow-hidden font-sans">
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="bg-white/75 backdrop-blur-xl shadow-[4px_0_24px_rgba(0,0,0,0.08)] w-64 flex-shrink-0 flex-col transition-all duration-300 transform -translate-x-full fixed inset-y-0 left-0 z-50 border-r border-gray-200 hidden">
+        <div class="p-4 flex items-center justify-between">
+            <span class="font-bold text-lg tracking-wide flex items-center text-gray-800">
+                <div class="w-7 h-7 bg-black rounded-full flex items-center justify-center mr-2">
+                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                </div>
+                BiharGPT
+            </span>
+            <button id="closeSidebarMobile" class="text-gray-500 hover:text-gray-800 p-1 hover:bg-black/5 rounded-lg transition-colors">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        
+        <div class="flex-1 overflow-y-auto p-3 flex flex-col">
+            
+            <button onclick="newChat()" class="w-full text-left px-3 py-2 rounded-lg hover:bg-white bg-white/40 border border-gray-200 flex items-center transition-colors text-sm font-medium text-gray-800 mb-3 shadow-sm">
+                <svg class="w-4 h-4 mr-3 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                New Task
+            </button>
+
+            <!-- Search Bar -->
+            <div class="relative mb-3">
+                <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                <input type="text" id="historySearch" placeholder="Search history..." class="w-full pl-9 pr-3 py-2 bg-white/40 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-black focus:bg-white placeholder-gray-500 transition-colors">
+            </div>
+
+            <!-- History List -->
+            <div class="flex-1 overflow-y-auto space-y-1" id="historyList">
+                <!-- Populated by JS -->
+            </div>
+
+        </div>
+    </aside>
+
+    <!-- Analyze Settings Modal -->
+    <div id="analyzeModal" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 border border-gray-100 transform transition-all">
+            <!-- Header -->
+            <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
+                        <svg class="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    </div>
+                    <h3 class="text-base font-semibold text-gray-800">Analyze Options</h3>
+                </div>
+                <button type="button" onclick="document.getElementById('modalCancelBtn').click()" class="text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-100 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <!-- Body -->
+            <div class="p-6 space-y-5">
+                <div>
+                    <label class="block text-[13px] font-medium text-gray-700 mb-1.5">Videos to Process</label>
+                    <div class="relative">
+                        <select id="downloadCount" class="w-full appearance-none bg-transparent border border-gray-300 rounded-lg py-2.5 pl-3 pr-10 text-sm text-gray-800 focus:outline-none focus:border-black focus:ring-1 focus:ring-black transition-colors cursor-pointer">
+                            <option value="1">1 Video</option>
+                            <option value="3">3 Videos</option>
+                            <option value="5" selected>5 Videos</option>
+                            <option value="10">10 Videos</option>
+                            <option value="15">15 Videos</option>
+                            <option value="20">20 Videos</option>
+                        </select>
+                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-[13px] font-medium text-gray-700 mb-1.5">AI Language</label>
+                    <div class="relative">
+                        <select id="aiLanguage" class="w-full appearance-none bg-transparent border border-gray-300 rounded-lg py-2.5 pl-3 pr-10 text-sm text-gray-800 focus:outline-none focus:border-black focus:ring-1 focus:ring-black transition-colors cursor-pointer">
+                            <option value="Hindi (spoken, friendly tone)">Hindi (आम बोलचाल)</option>
+                            <option value="Hinglish (mix of Hindi and English)">Hinglish</option>
+                            <option value="English">English</option>
+                            <option value="Marathi">Marathi</option>
+                            <option value="Tamil">Tamil</option>
+                            <option value="Telugu">Telugu</option>
+                            <option value="Bengali">Bengali</option>
+                            <option value="Gujarati">Gujarati</option>
+                            <option value="Punjabi">Punjabi</option>
+                        </select>
+                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Footer -->
+            <div class="px-6 py-4 bg-gray-50/50 border-t border-gray-100 flex items-center justify-end space-x-2 rounded-b-2xl">
+                <button id="modalCancelBtn" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:text-gray-900 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-200">
+                    Cancel
+                </button>
+                <button id="modalConfirmBtn" class="px-4 py-2 text-sm font-medium text-white bg-black rounded-lg hover:bg-gray-800 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1">
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col h-full relative w-full bg-white">
+        <!-- Top Progress Bar (hidden by default) -->
+        <div id="topProgressBar" class="hidden absolute top-0 left-0 right-0 z-40">
+            <div class="w-full bg-gray-200 h-[3px] relative overflow-hidden">
+                <div id="topProgShimmer" class="absolute inset-0 w-full h-full shimmer-bar opacity-40"></div>
+                <div id="topProgFill" class="absolute top-0 left-0 bottom-0 bg-black transition-all duration-500 ease-out shadow-[0_0_8px_rgba(0,0,0,0.3)]" style="width: 0%"></div>
+            </div>
+            <div class="flex justify-end px-3 pt-1">
+                <span id="topProgText" class="inline-flex items-center text-[11px] font-semibold text-gray-600 bg-white px-2 py-0.5 rounded-full border border-gray-200 shadow-sm">
+                    0 / 0 videos
+                </span>
+            </div>
+        </div>
+
+        <!-- Top Header -->
+        <div class="absolute top-3 left-3 z-30 flex items-center space-x-2">
+            <button id="openSidebarBtn" class="p-2 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors" title="Open History">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"></path></svg>
+            </button>
+            <span class="hidden md:flex text-lg font-bold text-gray-800 items-center cursor-default">
+                BiharGPT
+            </span>
+        </div>
+
+        <!-- Scrollable Viewport -->
+        <div id="viewport" class="flex-1 overflow-y-auto px-4 pt-20 pb-4 md:px-8 md:pt-20 w-full scroll-smooth">
+            
+            <!-- Welcome/Empty State with Suggestions -->
+            <div id="welcomeState" class="flex flex-col items-center text-center max-w-3xl mx-auto space-y-4 md:space-y-6 mt-2 md:mt-8">
+                <div class="bg-black p-3 md:p-4 rounded-full shadow-lg">
+                    <svg class="w-7 h-7 md:w-10 md:h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                </div>
+                <h1 class="text-xl md:text-4xl font-bold text-gray-800" id="welcomeTitle">How can I help you today?</h1>
+                
+                <!-- Suggestions Grid -->
+                <div id="suggestionsGrid" class="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3 mt-4 md:mt-10 w-full text-left">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <!-- Search Results Area -->
+            <div id="searchResultsArea" class="hidden w-full max-w-6xl mx-auto">
+                <div id="searchHeaderBlock" class="flex items-center space-x-3 mb-6">
+                    <div class="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 shadow-sm border border-green-200">
+                        <svg class="w-4 h-4 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                    </div>
+                    <h2 class="text-xl font-bold text-gray-800" id="searchCountHeading">Found Creators</h2>
+                </div>
+                <div id="creatorsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6 w-full pb-40">
+                    <!-- Cards injected here -->
+                </div>
+            </div>
+
+            <!-- Analyze Results Area (Progress, Chat History) -->
+            <div id="analyzeResultsArea" class="hidden max-w-4xl mx-auto w-full flex flex-col space-y-6">
+                <div id="chatHistoryFlow" class="flex flex-col space-y-6">
+                    <!-- Dynamic blocks will be appended here (Summaries, User Qs, AI As, Progress) -->
+                </div>
+            </div>
+
+            <!-- Spacer to ensure content can scroll past the bottom input bar -->
+            <div class="h-32 md:h-40 w-full flex-shrink-0"></div>
+
+        </div>
+
+        <!-- Bottom Input Area -->
+        <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-white via-white to-transparent pt-6 pb-3 px-3 md:px-8">
+            <div class="max-w-4xl mx-auto relative">
+                <form id="mainInputForm" class="relative flex items-end w-full border border-gray-300 bg-white rounded-2xl shadow-[0_0_15px_rgba(0,0,0,0.05)] focus-within:border-gray-400 focus-within:shadow-[0_0_20px_rgba(0,0,0,0.1)] transition-all">
+                    
+                    <!-- Plus Button (Tool Selector) -->
+                    <div class="relative">
+                        <button type="button" id="plusMenuBtn" class="ml-2 mb-1.5 md:mb-2.5 p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors flex items-center justify-center" title="Select Tool">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path></svg>
+                        </button>
+                        
+                        <!-- Popup Menu (opens upwards) -->
+                        <div id="plusMenu" class="hidden absolute bottom-full left-0 mb-2 w-64 md:w-72 bg-white border border-gray-200 rounded-2xl shadow-xl z-50 py-2 px-1">
+                            <button type="button" onclick="selectTool('search')" class="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-start rounded-xl transition-colors group">
+                                <div class="w-8 h-8 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center flex-shrink-0 mr-3 mt-0.5 group-hover:bg-blue-100">
+                                    <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                </div>
+                                <div>
+                                    <div class="font-semibold text-gray-800 text-sm">Search Creators</div>
+                                    <div class="text-xs text-gray-500">Find top Instagram influencers by niche</div>
+                                </div>
+                            </button>
+                            <button type="button" onclick="selectTool('analyze')" class="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-start rounded-xl transition-colors group">
+                                <div class="w-8 h-8 rounded-lg bg-purple-50 border border-purple-100 flex items-center justify-center flex-shrink-0 mr-3 mt-0.5 group-hover:bg-purple-100">
+                                    <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+                                </div>
+                                <div>
+                                    <div class="font-semibold text-gray-800 text-sm">Share Instagram URLs</div>
+                                    <div class="text-xs text-gray-500">Paste raw data to extract & analyze videos</div>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+
+                    <textarea id="mainInput" rows="1" class="w-full max-h-[200px] overflow-y-auto py-3 md:py-4 pl-2 pr-12 md:pr-14 bg-transparent text-gray-800 placeholder-gray-500 focus:outline-none resize-none text-sm md:text-base leading-relaxed" placeholder="Message AI Analyzer..."></textarea>
+                    <button type="submit" id="sendBtn" class="absolute right-2 md:right-3 bottom-2 md:bottom-3 p-2 bg-black hover:bg-gray-800 text-white rounded-lg transition-colors flex items-center justify-center disabled:opacity-50 disabled:bg-gray-300 disabled:cursor-not-allowed">
+                        <svg class="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                    </button>
+                </form>
+                <p class="hidden md:block text-xs text-center text-gray-500 mt-2">AI can make mistakes. Verify important information.</p>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // DOM Elements
+        const sidebar = document.getElementById('sidebar');
+        const closeSidebarMobile = document.getElementById('closeSidebarMobile');
+        
+        const toolSelectorBtn = document.getElementById('plusMenuBtn');
+        const toolDropdownMenu = document.getElementById('plusMenu');
+        const analyzeModal = document.getElementById('analyzeModal');
+        const modalCancelBtn = document.getElementById('modalCancelBtn');
+        const modalConfirmBtn = document.getElementById('modalConfirmBtn');
+        
+        const mainInput = document.getElementById('mainInput');
+        const mainInputForm = document.getElementById('mainInputForm');
+        const sendBtn = document.getElementById('sendBtn');
+        const welcomeState = document.getElementById('welcomeState');
+        const suggestionsGrid = document.getElementById('suggestionsGrid');
+        
+        const searchResultsArea = document.getElementById('searchResultsArea');
+        const analyzeResultsArea = document.getElementById('analyzeResultsArea');
+        const chatHistoryFlow = document.getElementById('chatHistoryFlow');
+        const creatorsGrid = document.getElementById('creatorsGrid');
+        const viewport = document.getElementById('viewport');
+
+        // State variables
+        let currentMode = 'search'; // search | analyze | chat
+        let globalSummaries = [];
+        let batchInProgress = false;
+                document.getElementById('analyzeLoadingUI')?.remove();
+        let searchResultsExist = false;
+
+        // Auto-resize textarea
+        mainInput.addEventListener('input', function() {
+            this.style.height = '1px';
+            this.style.height = (this.scrollHeight) + 'px';
+            if(this.value.trim() === '') {
+                this.style.height = 'auto';
+            }
+        });
+
+        // Enter key to submit
+        mainInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                mainInputForm.dispatchEvent(new Event('submit'));
+            }
+        });
+
+        // Sidebar toggles
+        const openSidebarBtn = document.getElementById('openSidebarBtn');
+        
+        openSidebarBtn.addEventListener('click', () => {
+            sidebar.classList.remove('hidden');
+            sidebar.classList.add('flex');
+            // Allow display change to apply before transforming
+            setTimeout(() => {
+                sidebar.classList.remove('-translate-x-full');
+            }, 10);
+        });
+        closeSidebarMobile.addEventListener('click', () => {
+            sidebar.classList.add('-translate-x-full');
+            // Wait for transition to finish before hiding
+            setTimeout(() => {
+                sidebar.classList.add('hidden');
+                sidebar.classList.remove('flex');
+            }, 300);
+        });
+
+        // Tool Dropdown toggle (+ button)
+        toolSelectorBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toolDropdownMenu.classList.toggle('hidden');
+        });
+        document.addEventListener('click', () => {
+            toolDropdownMenu.classList.add('hidden');
+        });
+
+        // Modal handlers
+        modalCancelBtn.addEventListener('click', () => {
+            analyzeModal.classList.add('hidden');
+        });
+        modalConfirmBtn.addEventListener('click', () => {
+            analyzeModal.classList.add('hidden');
+            doSelectTool('analyze');
+        });
+
+        const suggestions = {
+            search: [
+                { title: "Top fitness influencers", text: "in Mumbai with high engagement" },
+                { title: "Tech & gadget reviewers", text: "in India targeting students" },
+                { title: "Finance & crypto experts", text: "sharing daily investment tips" },
+                { title: "Fashion lifestyle bloggers", text: "in USA with aesthetic reels" }
+            ],
+            analyze: [
+                { title: "Extract Instagram URLs", text: "from pasted raw TSV data" },
+                { title: "Download & Summarize", text: "bulk videos in Hindi" }
+            ]
+        };
+
+        function renderSuggestions(mode) {
+            suggestionsGrid.innerHTML = '';
+            const list = suggestions[mode] || [];
+            list.forEach(s => {
+                suggestionsGrid.innerHTML += `
+                    <button onclick="useSuggestion('${s.title} ${s.text}')" class="text-left p-3 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors bg-white shadow-sm flex flex-col justify-center">
+                        <span class="font-semibold text-sm text-gray-700">${s.title}</span>
+                        <span class="text-xs text-gray-500 truncate w-full">${s.text}</span>
+                    </button>
+                `;
+            });
+        }
+
+        function useSuggestion(text) {
+            mainInput.value = text;
+            mainInput.focus();
+            mainInput.dispatchEvent(new Event('input'));
+        }
+
+        function newChat() {
+            if (window.innerWidth < 768) { 
+                sidebar.classList.add('-translate-x-full');
+                setTimeout(() => {
+                    sidebar.classList.add('hidden');
+                    sidebar.classList.remove('flex');
+                }, 300);
+            }
+            selectTool(currentMode === 'chat' ? 'analyze' : currentMode);
+        }
+
+        // Switch Mode
+        function selectTool(mode) {
+            toolDropdownMenu.classList.add('hidden');
+            if (mode === 'analyze') {
+                // Show modal first
+                analyzeModal.classList.remove('hidden');
+                return;
+            }
+            doSelectTool(mode);
+        }
+
+        function doSelectTool(mode) {
+            currentMode = mode;
+            searchResultsExist = false;
+            
+            // Reset view
+            welcomeState.classList.remove('hidden');
+            searchResultsArea.classList.add('hidden');
+            analyzeResultsArea.classList.add('hidden');
+            mainInput.value = '';
+            mainInput.style.height = 'auto';
+
+            if (mode === 'search') {
+                mainInput.placeholder = "e.g. fitness influencers in Mumbai...";
+                renderSuggestions('search');
+            } else if (mode === 'analyze') {
+                mainInput.placeholder = "Paste raw text containing links here...";
+                chatHistoryFlow.innerHTML = '';
+                globalSummaries = [];
+                renderSuggestions('analyze');
+            } else if (mode === 'chat') {
+                welcomeState.classList.add('hidden');
+                analyzeResultsArea.classList.remove('hidden');
+                mainInput.placeholder = "Ask questions about these videos...";
+            }
+            
+            if (window.innerWidth < 768) {
+                sidebar.classList.add('-translate-x-full');
+                setTimeout(() => {
+                    sidebar.classList.add('hidden');
+                    sidebar.classList.remove('flex');
+                }, 300);
+            }
+        }
+
+        // Initialize default tool
+        selectTool('search');
+
+        // Helper: Add Chat Bubble
+        function addChatBubble(content, isUser=false, isSystem=false, id="") {
+            const wrapper = document.createElement('div');
+            wrapper.className = `flex ${isUser ? 'justify-end' : 'justify-start'} w-full mb-6`;
+            if(id) wrapper.id = id;
+
+            let innerHtml = '';
+            if (isUser) {
+                innerHtml = `<div class="max-w-[85%] md:max-w-[75%] rounded-2xl p-4 bg-gray-100 text-gray-800 border border-gray-200 shadow-sm whitespace-pre-wrap text-sm md:text-base leading-relaxed text-left">${content.trim()}</div>`;
+            } else if (isSystem) {
+                innerHtml = `<div class="w-full rounded-xl p-4 md:p-6 bg-white border border-gray-200 shadow-sm flex items-start space-x-3 md:space-x-4">
+                    <div class="w-8 h-8 rounded bg-gray-100 flex items-center justify-center flex-shrink-0 mt-0.5 border border-gray-200">
+                        <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    </div>
+                    <div class="flex-1 min-w-0 text-sm md:text-base leading-relaxed text-gray-600 pt-0.5 whitespace-pre-wrap">${content.trim()}</div>
+                </div>`;
+            } else {
+                // AI Bot response
+                innerHtml = `<div class="w-full rounded-xl p-4 md:p-6 bg-transparent flex items-start space-x-3 md:space-x-4">
+                    <div class="w-8 h-8 rounded-full bg-black flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm">
+                        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    </div>
+                    <div class="flex-1 min-w-0 text-sm md:text-base leading-relaxed text-gray-800 whitespace-pre-wrap pt-0.5">${content.trim()}</div>
+                </div>`;
+            }
+            
+            wrapper.innerHTML = innerHtml;
+            chatHistoryFlow.appendChild(wrapper);
+            
+            setTimeout(() => { viewport.scrollTop = viewport.scrollHeight; }, 100);
+            return wrapper;
+        }
+
+        // Handle Main Submit
+
+        let isAwaitingConfirmation = false;
+        let pendingTool = null;
+        let pendingQuery = null;
+
+        mainInputForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const text = mainInput.value.trim();
+            if (!text || batchInProgress) return;
+            
+            mainInput.value = '';
+            mainInput.style.height = 'auto';
+            sendBtn.disabled = true;
+            
+            const isInstagramUrls = /instagram\.com\/(?:reel|p|tv|share)/i.test(text);
+
+            if (searchResultsExist && !isAwaitingConfirmation && !isInstagramUrls) {
+                await sendGeneralChat(text);
+                return;
+            }
+            
+            if (isAwaitingConfirmation) {
+                sendBtn.disabled = false;
+                return; // Wait for button click
+            }
+            
+            // Switch to analyze area to show routing interaction
+            welcomeState.classList.add('hidden');
+            searchResultsArea.classList.add('hidden');
+            analyzeResultsArea.classList.remove('hidden');
+            
+            addChatBubble(text, true);
+
+            const loadingId = 'router-' + Date.now();
+            const loadingHtml = `<div class="flex items-center text-gray-500">
+                <svg class="w-4 h-4 mr-2 animate-spin text-black" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg> 
+                Agent analyzing your request...
+            </div>`;
+            addChatBubble(loadingHtml, false, false, loadingId);
+
+            try {
+                const res = await fetch('/agent/route', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({prompt: text})
+                });
+                const data = await res.json();
+                
+                document.getElementById(loadingId)?.remove();
+                
+                if (data.action === 'execute') {
+                    if (data.tool === 'analyze_videos') {
+                        extractAndProcess(data.extracted_query);
+                    } else {
+                        performSearch(data.extracted_query);
+                    }
+                } else if (data.action === 'confirm') {
+                    isAwaitingConfirmation = true;
+                    pendingTool = data.tool;
+                    pendingQuery = data.extracted_query;
+                    sendBtn.disabled = false;
+                    
+                    const bubbleId = 'confirm-' + Date.now();
+                    const confirmHtml = `<div class="mb-3 text-gray-800 text-left">${data.message}</div>
+                        <div class="flex space-x-3">
+                            <button onclick="confirmAction(true, '${bubbleId}')" class="px-5 py-2.5 bg-black text-white text-sm font-semibold rounded-lg hover:bg-gray-800 transition-colors shadow-sm">Yes, proceed</button>
+                            <button onclick="confirmAction(false, '${bubbleId}')" class="px-5 py-2.5 bg-white text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-50 border border-gray-200 transition-colors shadow-sm">Cancel</button>
+                        </div>`;
+                    addChatBubble(confirmHtml, false, false, bubbleId);
+                }
+            } catch (err) {
+                document.getElementById(loadingId)?.remove();
+                addChatBubble(`<span class="text-red-600">Error routing request: ${err.message}</span>`, false, true);
+                sendBtn.disabled = false;
+            }
+        });
+
+        window.confirmAction = function(proceed, bubbleId) {
+            isAwaitingConfirmation = false;
+            const bubble = document.getElementById(bubbleId);
+            if (bubble) {
+                bubble.querySelector('.flex-1').innerHTML = proceed 
+                    ? `<span class="text-green-600 font-medium flex items-center"><svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> Proceeding with task...</span>` 
+                    : `<span class="text-gray-500 font-medium">Task cancelled by user.</span>`;
+            }
+            
+            if (proceed) {
+                if (pendingTool === 'analyze_videos') {
+                    extractAndProcess(pendingQuery);
+                } else {
+                    performSearch(pendingQuery);
+                }
+            } else {
+                sendBtn.disabled = false;
+            }
+            pendingTool = null;
+            pendingQuery = null;
+        };
+
+        // General AI Chat (works after search results or anytime)
+        async function sendGeneralChat(msg) {
+            // Show results in the search area as chat bubbles below the grid
+            const chatArea = document.createElement('div');
+            chatArea.className = 'col-span-full';
+            
+            // User bubble
+            chatArea.innerHTML = `
+                <div class="flex justify-end w-full mb-4 mt-4">
+                    <div class="max-w-[75%] rounded-2xl p-4 bg-gray-100 text-gray-800 border border-gray-200 shadow-sm whitespace-pre-wrap text-sm leading-relaxed">
+                        ${msg}
+                    </div>
+                </div>
+                <div id="generalTyping" class="flex justify-start w-full mb-4">
+                    <div class="w-full rounded-xl p-4 bg-transparent flex items-start space-x-4">
+                        <div class="w-8 h-8 rounded-full bg-black flex items-center justify-center flex-shrink-0 shadow-sm">
+                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        </div>
+                        <div class="flex space-x-1 items-center h-5">
+                            <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                            <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+                            <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            creatorsGrid.appendChild(chatArea);
+            viewport.scrollTop = viewport.scrollHeight;
+
+            try {
+                const res = await fetch('/chat_general', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: msg })
+                });
+                const data = await res.json();
+                
+                const typingEl = document.getElementById('generalTyping');
+                if (typingEl) typingEl.remove();
+
+                const answerDiv = document.createElement('div');
+                answerDiv.className = 'col-span-full';
+                answerDiv.innerHTML = `
+                    <div class="flex justify-start w-full mb-4">
+                        <div class="w-full rounded-xl p-4 bg-transparent flex items-start space-x-3 md:space-x-4">
+                            <div class="w-8 h-8 rounded-full bg-black flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm">
+                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0 text-sm md:text-base leading-relaxed text-gray-800 whitespace-pre-wrap pt-0.5">
+                                ${data.error ? '<span class="text-red-600">Error: ' + data.error + '</span>' : data.answer.trim()}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                creatorsGrid.appendChild(answerDiv);
+            } catch (error) {
+                const typingEl = document.getElementById('generalTyping');
+                if (typingEl) typingEl.remove();
+                const errDiv = document.createElement('div');
+                errDiv.className = 'col-span-full';
+                errDiv.innerHTML = `<div class="text-red-600 p-4">Network Error</div>`;
+                creatorsGrid.appendChild(errDiv);
+            } finally {
+                sendBtn.disabled = false;
+                viewport.scrollTop = viewport.scrollHeight;
+            }
+        }
+
+        // 1. Search Mode Logic
+        async function performSearch(query) {
+            welcomeState.classList.add('hidden');
+            analyzeResultsArea.classList.add('hidden');
+            searchResultsArea.classList.remove('hidden');
+            
+            document.getElementById('searchCountHeading').innerHTML = `<span class="flex items-center"><svg class="w-5 h-5 mr-2 spin-icon text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg> Analyzing: <span class="text-blue-600 ml-1">"${query}"</span></span>`;
+            
+            // Show ChatGPT style loading
+            creatorsGrid.innerHTML = `
+                <div class="col-span-full py-4">
+                    <div class="max-w-2xl mx-auto bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+                        <!-- Agent Header -->
+                        <div class="flex items-center px-5 py-4 border-b border-gray-100 bg-gray-50/50">
+                            <div class="w-9 h-9 rounded-full bg-black flex items-center justify-center flex-shrink-0 shadow-sm mr-3">
+                                <svg class="w-5 h-5 text-white spin-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                            </div>
+                            <div>
+                                <div class="text-sm font-bold text-gray-800">AI Agent Working</div>
+                                <div class="text-xs text-gray-500">Processing your request...</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Animated Steps -->
+                        <div class="px-5 py-4 space-y-3">
+                            <div class="agent-step flex items-center space-x-3">
+                                <div class="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-700">Searching the internet for creators...</span>
+                            </div>
+                            <div class="agent-step flex items-center space-x-3">
+                                <div class="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 pulse-dot text-blue-500">
+                                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-700">Reading and analyzing search results...</span>
+                            </div>
+                            <div class="agent-step flex items-center space-x-3">
+                                <div class="w-5 h-5 rounded-full bg-purple-500 flex items-center justify-center flex-shrink-0 pulse-dot text-purple-500">
+                                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-700">Extracting creator profiles and follower data...</span>
+                            </div>
+                            <div class="agent-step flex items-center space-x-3">
+                                <div class="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center flex-shrink-0 pulse-dot text-orange-500">
+                                    <svg class="w-3 h-3 text-white spin-icon" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-700">Compiling and ranking results...</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Shimmer skeleton preview -->
+                        <div class="px-5 pb-5 space-y-2">
+                            <div class="shimmer-bar h-3 rounded-full w-3/4"></div>
+                            <div class="shimmer-bar h-3 rounded-full w-1/2"></div>
+                            <div class="shimmer-bar h-3 rounded-full w-5/6"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            try {
+                const response = await fetch('/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({ query: query })
+                });
+                const data = await response.json();
+                
+                creatorsGrid.innerHTML = '';
+                if (data.error) {
+                    document.getElementById('searchHeaderBlock').classList.remove('hidden');
+                    document.getElementById('searchCountHeading').textContent = "Error: " + data.error;
+                } else if (data.creators && data.creators.length > 0) {
+                    document.getElementById('searchHeaderBlock').classList.remove('hidden');
+                    document.getElementById('searchCountHeading').innerHTML = `Found <span class="text-blue-600">${data.creators.length}</span> Creators`;
+                    
+                    // Add AI Response Bubble (Generative AI tadka)
+                    creatorsGrid.innerHTML += `
+                        <div class="col-span-full mb-2">
+                            <div class="inline-flex items-center bg-gray-50 border border-gray-200 rounded-full px-4 py-2 shadow-sm">
+                                <div class="w-6 h-6 rounded-full bg-black flex items-center justify-center flex-shrink-0 mr-2">
+                                    <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-600">Found <strong>${data.creators.length}</strong> creators for "<strong>${query}</strong>". Tap any card to visit their profile.</span>
+                            </div>
+                        </div>
+                    `;
+
+                    // Render cards from Gemini JSON
+                    data.creators.forEach(creator => {
+                        creatorsGrid.innerHTML += `
+                        <div class="card-hover bg-white rounded-2xl p-5 border border-gray-200 flex flex-col justify-between h-full shadow-sm relative overflow-hidden">
+                            <div class="absolute top-0 right-0 bg-blue-50 text-blue-700 text-xs font-bold px-3 py-1 rounded-bl-xl border-l border-b border-blue-100">
+                                👥 ${creator.followers || 'Unknown'}
+                            </div>
+                            <div class="mt-2">
+                                <h3 class="font-bold text-lg mb-1 text-gray-900 truncate">${creator.name || 'Creator'}</h3>
+                                <p class="text-xs text-blue-600 font-mono mb-3">${creator.handle || ''}</p>
+                                <p class="text-sm text-gray-600 line-clamp-4 mb-4 leading-relaxed">${creator.description || 'No description available.'}</p>
+                            </div>
+                            <a href="${creator.profile_url}" target="_blank" class="flex items-center justify-center text-white text-sm font-semibold mt-auto bg-black hover:bg-gray-800 px-3 py-2.5 rounded-lg w-full transition-colors">
+                                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                                Open Profile
+                            </a>
+                        </div>`;
+                    });
+                } else {
+                    document.getElementById('searchHeaderBlock').classList.remove('hidden');
+                    document.getElementById('searchCountHeading').textContent = "No creators found.";
+                }
+            } catch (error) {
+                document.getElementById('searchHeaderBlock').classList.remove('hidden');
+                document.getElementById('searchCountHeading').textContent = "Network Error during search.";
+            } finally {
+                sendBtn.disabled = false;
+            }
+        }
+
+        // 2. Analyze Mode Logic
+        async function extractAndProcess(rawData) {
+            selectTool('chat'); // UI switch
+            
+            
+
+                // Add center loading animation
+                const centerLoadingHtml = `
+                <div id="analyzeLoadingUI" class="col-span-full py-4 w-full">
+                    <div class="max-w-2xl mx-auto bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+                        <div class="flex items-center px-5 py-4 border-b border-gray-100 bg-gray-50/50">
+                            <div class="w-9 h-9 rounded-full bg-black flex items-center justify-center flex-shrink-0 shadow-sm mr-3">
+                                <svg class="w-5 h-5 text-white spin-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                            </div>
+                            <div>
+                                <div class="text-sm font-bold text-gray-800">Agent Processing Videos</div>
+                                <div class="text-xs text-gray-500">Downloading and analyzing your batch...</div>
+                            </div>
+                        </div>
+                        <div class="px-5 py-4 space-y-3">
+                            <div class="agent-step flex items-center space-x-3">
+                                <div class="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 pulse-dot text-blue-500">
+                                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-700">Downloading high-quality video files...</span>
+                            </div>
+                            <div class="agent-step flex items-center space-x-3">
+                                <div class="w-5 h-5 rounded-full bg-purple-500 flex items-center justify-center flex-shrink-0 pulse-dot text-purple-500">
+                                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-700">Extracting audio and transcribing speech...</span>
+                            </div>
+                            <div class="agent-step flex items-center space-x-3">
+                                <div class="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center flex-shrink-0 pulse-dot text-orange-500">
+                                    <svg class="w-3 h-3 text-white spin-icon" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-700">Running AI content strategy analysis...</span>
+                            </div>
+                        </div>
+                        <div class="px-5 pb-5 space-y-2">
+                            <div class="shimmer-bar h-3 rounded-full w-3/4"></div>
+                            <div class="shimmer-bar h-3 rounded-full w-1/2"></div>
+                        </div>
+                    </div>
+                </div>
+                `;
+                chatHistoryFlow.insertAdjacentHTML('beforeend', centerLoadingHtml);
+            try {
+                const exRes = await fetch('/extract_urls', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({ 'data': rawData })
+                });
+                const exData = await exRes.json();
+                
+                if (exData.error) throw new Error(exData.error);
+                if (!exData.urls || exData.urls.length === 0) throw new Error("No Instagram URLs found in the pasted data.");
+                
+                
+                
+                const count = document.getElementById('downloadCount').value;
+                const language = document.getElementById('aiLanguage').value;
+                
+                const batchRes = await fetch('/start_batch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ urls: exData.urls, count: count, language: language })
+                });
+                const batchData = await batchRes.json();
+                if (batchData.error) throw new Error(batchData.error);
+                
+                batchInProgress = true;
+                
+                // Add Progress Bubble
+                const progressId = "prog-" + Date.now();
+                addChatBubble(`
+                    <div class="mb-3 font-bold text-gray-800">System Progress</div>
+                    <div class="space-y-4 w-full">
+                        <div>
+                            <div class="flex justify-between text-xs mb-1 text-gray-500 font-medium">
+                                <span>Batch Overall Progress</span>
+                                <span id="globalProgText-${progressId}">0 / 0</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2">
+                                <div id="globalProgBar-${progressId}" class="bg-black h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-xs mb-1 text-gray-500 font-medium">
+                                <span id="curStatusText-${progressId}">Initializing...</span>
+                                <span id="curProgText-${progressId}">0%</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2">
+                                <div id="curProgBar-${progressId}" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                `, false, true, progressId);
+
+                // Polling
+                let trackedSummaries = 0;
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const statusRes = await fetch(`/batch_status/${batchData.batch_id}`);
+                        const statusData = await statusRes.json();
+                        if(statusData.error) { clearInterval(pollInterval); return; }
+                        
+                        document.getElementById(`globalProgText-${progressId}`).textContent = `${statusData.completed} / ${statusData.total}`;
+                        document.getElementById(`globalProgBar-${progressId}`).style.width = `${(statusData.completed / statusData.total) * 100}%`;
+                        document.getElementById(`curStatusText-${progressId}`).textContent = statusData.current_status;
+                        document.getElementById(`curProgText-${progressId}`).textContent = `${statusData.current_progress}%`;
+                        document.getElementById(`curProgBar-${progressId}`).style.width = `${statusData.current_progress}%`;
+                        
+                        if (statusData.records && statusData.records.length > trackedSummaries) {
+                            for (let i = trackedSummaries; i < statusData.records.length; i++) {
+                                const rec = statusData.records[i];
+                                if (rec.ai_summary) {
+                                    globalSummaries.push(rec.ai_summary);
+                                    
+                                    addChatBubble(`
+                                        <details class="w-full cursor-pointer group bg-gray-50 border border-gray-200 rounded-lg p-3">
+                                            <summary class="font-semibold text-gray-800 list-none flex items-center justify-between outline-none">
+                                                <div class="flex items-center">
+                                                    <svg class="w-4 h-4 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                                    Video ${i+1} Summary Extracted
+                                                    <a href="${rec.url}" target="_blank" class="ml-3 text-xs text-blue-600 hover:underline font-mono bg-blue-50 px-2 py-1 rounded" onclick="event.stopPropagation()">View Source</a>
+                                                </div>
+                                                <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                            </summary>
+                                            <div class="mt-4 pt-4 border-t border-gray-200 text-sm text-gray-700 leading-relaxed cursor-text whitespace-pre-wrap">
+                                                ${rec.ai_summary}
+                                            </div>
+                                        </details>
+                                    `, false, true);
+                                    
+                                    sendBtn.disabled = false;
+                                }
+                            }
+                            trackedSummaries = statusData.records.length;
+                        }
+                        
+                        if (statusData.done) {
+                            clearInterval(pollInterval);
+                            batchInProgress = false;
+                document.getElementById('analyzeLoadingUI')?.remove();
+                            sendBtn.disabled = false;
+                            document.getElementById(`curStatusText-${progressId}`).textContent = "✅ All processing complete.";
+                            document.getElementById(`curStatusText-${progressId}`).classList.add('text-green-600');
+                        }
+                    } catch(e) {}
+                }, 2000);
+                
+            } catch (error) {
+                addChatBubble(`<span class=\"text-red-600 font-bold\">Error:</span> ${error.message}`, false, true);
+                sendBtn.disabled = false;
+                batchInProgress = false;
+                document.getElementById('analyzeLoadingUI')?.remove();
+            }
+        }
+
+        // 3. Chat Mode Logic
+        async function sendChatMessage(msg) {
+            addChatBubble(msg, true);
+            
+            const typingId = "typing-" + Date.now();
+            addChatBubble(`<div class="flex space-x-1 items-center h-5">
+                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+            </div>`, false, false, typingId);
+            
+            try {
+                const res = await fetch('/chat_agent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: msg, summaries: globalSummaries })
+                });
+                const data = await res.json();
+                
+                document.getElementById(typingId).remove();
+                
+                if (data.error) {
+                    addChatBubble(`<span class="text-red-600 font-bold">Error:</span> ${data.error}`);
+                } else {
+                    addChatBubble(data.answer);
+                }
+            } catch (error) {
+                document.getElementById(typingId).remove();
+                addChatBubble(`<span class="text-red-600 font-bold">Network Error:</span> Could not connect to AI Agent.`);
+            } finally {
+                sendBtn.disabled = false;
+            }
+        }
+        
+        // =============================================
+        // CHAT HISTORY SYSTEM (localStorage)
+        // =============================================
+        const historyList = document.getElementById('historyList');
+        const historySearchInput = document.getElementById('historySearch');
+        let activeHistoryId = null;
+
+        function getHistory() {
+            return JSON.parse(localStorage.getItem('agy_history') || '[]');
+        }
+        function saveHistory(history) {
+            localStorage.setItem('agy_history', JSON.stringify(history));
+        }
+
+        // Auto-generate a short title from the query/action
+        function generateTitle(type, query) {
+            const maxLen = 30;
+            if (type === 'search') {
+                const t = 'Search: ' + query;
+                return t.length > maxLen ? t.substring(0, maxLen) + '...' : t;
+            } else {
+                const t = 'Analyze: URLs';
+                return t;
+            }
+        }
+
+        // Save current session to history
+        function saveSession(type, query, data) {
+            const history = getHistory();
+            const id = 'h_' + Date.now();
+            const entry = {
+                id: id,
+                type: type, // 'search' or 'analyze'
+                title: generateTitle(type, query),
+                query: query,
+                data: data, // creators array or {chatHTML, summaries, records}
+                timestamp: new Date().toISOString()
+            };
+            history.unshift(entry); // newest first
+            // Keep max 50 entries
+            if (history.length > 50) history.pop();
+            saveHistory(history);
+            activeHistoryId = id;
+            renderHistory();
+        }
+
+        // Render history list in sidebar
+        function renderHistory(filter = '') {
+            const history = getHistory();
+            historyList.innerHTML = '';
+            
+            const filtered = filter 
+                ? history.filter(h => h.title.toLowerCase().includes(filter.toLowerCase()))
+                : history;
+
+            if (filtered.length === 0) {
+                historyList.innerHTML = '<p class="text-xs text-gray-400 text-center py-4">No history yet</p>';
+                return;
+            }
+
+            // Group by date
+            const today = new Date().toDateString();
+            const yesterday = new Date(Date.now() - 86400000).toDateString();
+            let currentGroup = '';
+
+            filtered.forEach(entry => {
+                const d = new Date(entry.timestamp).toDateString();
+                let groupLabel = '';
+                if (d === today) groupLabel = 'Today';
+                else if (d === yesterday) groupLabel = 'Yesterday';
+                else groupLabel = new Date(entry.timestamp).toLocaleDateString('en-IN', {day:'numeric', month:'short'});
+
+                if (groupLabel !== currentGroup) {
+                    currentGroup = groupLabel;
+                    historyList.innerHTML += `<p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-2 pt-3 pb-1">${groupLabel}</p>`;
+                }
+
+                const isActive = entry.id === activeHistoryId;
+                const icon = entry.type === 'search' 
+                    ? '<svg class="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>'
+                    : '<svg class="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>';
+
+                historyList.innerHTML += `
+                    <button onclick="loadHistory('${entry.id}')" class="w-full text-left px-2 py-2 rounded-lg flex items-center text-sm transition-colors truncate ${isActive ? 'bg-black/5 font-semibold text-gray-900' : 'hover:bg-white/50 text-gray-700'}">
+                        ${icon}
+                        <span class="truncate">${entry.title}</span>
+                    </button>
+                `;
+            });
+        }
+
+        // Load a history entry
+        function loadHistory(id) {
+            const history = getHistory();
+            const entry = history.find(h => h.id === id);
+            if (!entry) return;
+
+            activeHistoryId = id;
+            renderHistory();
+
+            if (entry.type === 'search') {
+                // Restore search results
+                currentMode = 'search';
+                welcomeState.classList.add('hidden');
+                analyzeResultsArea.classList.add('hidden');
+                searchResultsArea.classList.remove('hidden');
+                mainInput.placeholder = "e.g. fitness influencers in Mumbai...";
+
+                if (entry.data && entry.data.creators && entry.data.creators.length > 0) {
+                    document.getElementById('searchHeaderBlock').classList.remove('hidden');
+                    document.getElementById('searchCountHeading').innerHTML = `Found <span class="text-blue-600">${entry.data.creators.length}</span> Creators`;
+                    creatorsGrid.innerHTML = '';
+
+                    // AI intro bubble
+                    creatorsGrid.innerHTML += `
+                        <div class="col-span-full mb-2">
+                            <div class="inline-flex items-center bg-gray-50 border border-gray-200 rounded-full px-4 py-2 shadow-sm">
+                                <div class="w-6 h-6 rounded-full bg-black flex items-center justify-center flex-shrink-0 mr-2">
+                                    <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-600">Restored <strong>${entry.data.creators.length}</strong> creators for "<strong>${entry.query}</strong>".</span>
+                            </div>
+                        </div>
+                    `;
+
+                    entry.data.creators.forEach(creator => {
+                        creatorsGrid.innerHTML += `
+                        <div class="card-hover bg-white rounded-2xl p-5 border border-gray-200 flex flex-col justify-between h-full shadow-sm relative overflow-hidden">
+                            <div class="absolute top-0 right-0 bg-blue-50 text-blue-700 text-xs font-bold px-3 py-1 rounded-bl-xl border-l border-b border-blue-100">
+                                ${creator.followers || 'Unknown'}
+                            </div>
+                            <div class="mt-2">
+                                <h3 class="font-bold text-lg mb-1 text-gray-900 truncate">${creator.name || 'Creator'}</h3>
+                                <p class="text-xs text-blue-600 font-mono mb-3">${creator.handle || ''}</p>
+                                <p class="text-sm text-gray-600 line-clamp-4 mb-4 leading-relaxed">${creator.description || ''}</p>
+                            </div>
+                            <a href="${creator.profile_url}" target="_blank" class="flex items-center justify-center text-white text-sm font-semibold mt-auto bg-black hover:bg-gray-800 px-3 py-2.5 rounded-lg w-full transition-colors">
+                                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                                Open Profile
+                            </a>
+                        </div>`;
+                    });
+                }
+
+            } else if (entry.type === 'analyze') {
+                // Restore analyze results
+                currentMode = 'chat';
+                welcomeState.classList.add('hidden');
+                searchResultsArea.classList.add('hidden');
+                analyzeResultsArea.classList.remove('hidden');
+                mainInput.placeholder = "Ask questions about these videos...";
+
+                // Restore chat HTML and summaries
+                chatHistoryFlow.innerHTML = entry.data.chatHTML || '';
+                globalSummaries = entry.data.summaries || [];
+            }
+        }
+
+        // Search history filter
+        historySearchInput.addEventListener('input', function() {
+            renderHistory(this.value);
+        });
+
+        // =============================================
+        // HOOK: Save to history after search completes
+        // =============================================
+        const _origPerformSearch = performSearch;
+        performSearch = async function(query) {
+            await _origPerformSearch(query);
+            // After search completes, save the current creators data
+            const headingEl = document.getElementById('searchCountHeading');
+            if (headingEl && !headingEl.textContent.includes('Error') && !headingEl.textContent.includes('No creators')) {
+                // Reconstruct data from DOM is fragile, so we patch performSearch to capture data
+            }
+        };
+
+        // Patch: Override performSearch completely to capture data for history
+        performSearch = async function(query) {
+            welcomeState.classList.add('hidden');
+            analyzeResultsArea.classList.add('hidden');
+            searchResultsArea.classList.remove('hidden');
+            
+            document.getElementById('searchHeaderBlock').classList.add('hidden');
+            creatorsGrid.innerHTML = `
+                <div class="col-span-full py-4">
+                    <div class="max-w-2xl mx-auto bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+                        <!-- Agent Header -->
+                        <div class="flex items-center px-5 py-4 border-b border-gray-100 bg-gray-50/50">
+                            <div class="w-9 h-9 rounded-full bg-black flex items-center justify-center flex-shrink-0 shadow-sm mr-3">
+                                <svg class="w-5 h-5 text-white spin-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                            </div>
+                            <div>
+                                <div class="text-sm font-bold text-gray-800">AI Agent Working</div>
+                                <div class="text-xs text-gray-500">Processing your request...</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Animated Steps -->
+                        <div class="px-5 py-4 space-y-3">
+                            <div class="agent-step flex items-center space-x-3">
+                                <div class="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-700">Searching the internet for creators...</span>
+                            </div>
+                            <div class="agent-step flex items-center space-x-3">
+                                <div class="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 pulse-dot text-blue-500">
+                                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-700">Reading and analyzing search results...</span>
+                            </div>
+                            <div class="agent-step flex items-center space-x-3">
+                                <div class="w-5 h-5 rounded-full bg-purple-500 flex items-center justify-center flex-shrink-0 pulse-dot text-purple-500">
+                                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-700">Extracting creator profiles and follower data...</span>
+                            </div>
+                            <div class="agent-step flex items-center space-x-3">
+                                <div class="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center flex-shrink-0 pulse-dot text-orange-500">
+                                    <svg class="w-3 h-3 text-white spin-icon" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-700">Compiling and ranking results...</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Shimmer skeleton preview -->
+                        <div class="px-5 pb-5 space-y-2">
+                            <div class="shimmer-bar h-3 rounded-full w-3/4"></div>
+                            <div class="shimmer-bar h-3 rounded-full w-1/2"></div>
+                            <div class="shimmer-bar h-3 rounded-full w-5/6"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            try {
+                const response = await fetch('/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({ query: query })
+                });
+                const data = await response.json();
+                
+                creatorsGrid.innerHTML = '';
+                if (data.error) {
+                    document.getElementById('searchHeaderBlock').classList.remove('hidden');
+                    document.getElementById('searchCountHeading').textContent = "Error: " + data.error;
+                } else if (data.creators && data.creators.length > 0) {
+                    document.getElementById('searchHeaderBlock').classList.remove('hidden');
+                    document.getElementById('searchCountHeading').innerHTML = `Found <span class="text-blue-600">${data.creators.length}</span> Creators`;
+                    
+                    creatorsGrid.innerHTML += `
+                        <div class="col-span-full mb-2">
+                            <div class="inline-flex items-center bg-gray-50 border border-gray-200 rounded-full px-4 py-2 shadow-sm">
+                                <div class="w-6 h-6 rounded-full bg-black flex items-center justify-center flex-shrink-0 mr-2">
+                                    <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-600">Found <strong>${data.creators.length}</strong> creators for "<strong>${query}</strong>". Tap any card to visit their profile.</span>
+                            </div>
+                        </div>
+                    `;
+
+                    data.creators.forEach(creator => {
+                        creatorsGrid.innerHTML += `
+                        <div class="card-hover bg-white rounded-2xl p-5 border border-gray-200 flex flex-col justify-between h-full shadow-sm relative overflow-hidden">
+                            <div class="absolute top-0 right-0 bg-blue-50 text-blue-700 text-xs font-bold px-3 py-1 rounded-bl-xl border-l border-b border-blue-100">
+                                ${creator.followers || 'Unknown'}
+                            </div>
+                            <div class="mt-2">
+                                <h3 class="font-bold text-lg mb-1 text-gray-900 truncate">${creator.name || 'Creator'}</h3>
+                                <p class="text-xs text-blue-600 font-mono mb-3">${creator.handle || ''}</p>
+                                <p class="text-sm text-gray-600 line-clamp-4 mb-4 leading-relaxed">${creator.description || ''}</p>
+                            </div>
+                            <a href="${creator.profile_url}" target="_blank" class="flex items-center justify-center text-white text-sm font-semibold mt-auto bg-black hover:bg-gray-800 px-3 py-2.5 rounded-lg w-full transition-colors">
+                                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                                Open Profile
+                            </a>
+                        </div>`;
+                    });
+
+                    // SAVE TO HISTORY
+                    saveSession('search', query, { creators: data.creators });
+                    searchResultsExist = true;
+                    mainInput.placeholder = "Ask about these creators or search...";
+                } else {
+                    document.getElementById('searchHeaderBlock').classList.remove('hidden');
+                    document.getElementById('searchCountHeading').textContent = "No creators found.";
+                }
+            } catch (error) {
+                document.getElementById('searchHeaderBlock').classList.remove('hidden');
+                document.getElementById('searchCountHeading').textContent = "Network Error during search.";
+            } finally {
+                sendBtn.disabled = false;
+            }
+        };
+
+        // =============================================
+        // HOOK: Save analyze session when batch completes
+        // =============================================
+        const _origExtractAndProcess = extractAndProcess;
+        extractAndProcess = async function(rawData) {
+            doSelectTool('chat');
+            
+            
+
+                // Add center loading animation
+                const centerLoadingHtml = `
+                <div id="analyzeLoadingUI" class="col-span-full py-4 w-full">
+                    <div class="max-w-2xl mx-auto bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+                        <div class="flex items-center px-5 py-4 border-b border-gray-100 bg-gray-50/50">
+                            <div class="w-9 h-9 rounded-full bg-black flex items-center justify-center flex-shrink-0 shadow-sm mr-3">
+                                <svg class="w-5 h-5 text-white spin-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                            </div>
+                            <div>
+                                <div class="text-sm font-bold text-gray-800">Agent Processing Videos</div>
+                                <div class="text-xs text-gray-500">Downloading and analyzing your batch...</div>
+                            </div>
+                        </div>
+                        <div class="px-5 py-4 space-y-3">
+                            <div class="agent-step flex items-center space-x-3">
+                                <div class="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 pulse-dot text-blue-500">
+                                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-700">Downloading high-quality video files...</span>
+                            </div>
+                            <div class="agent-step flex items-center space-x-3">
+                                <div class="w-5 h-5 rounded-full bg-purple-500 flex items-center justify-center flex-shrink-0 pulse-dot text-purple-500">
+                                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-700">Extracting audio and transcribing speech...</span>
+                            </div>
+                            <div class="agent-step flex items-center space-x-3">
+                                <div class="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center flex-shrink-0 pulse-dot text-orange-500">
+                                    <svg class="w-3 h-3 text-white spin-icon" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                </div>
+                                <span class="text-sm text-gray-700">Running AI content strategy analysis...</span>
+                            </div>
+                        </div>
+                        <div class="px-5 pb-5 space-y-2">
+                            <div class="shimmer-bar h-3 rounded-full w-3/4"></div>
+                            <div class="shimmer-bar h-3 rounded-full w-1/2"></div>
+                        </div>
+                    </div>
+                </div>
+                `;
+                chatHistoryFlow.insertAdjacentHTML('beforeend', centerLoadingHtml);
+            try {
+                const exRes = await fetch('/extract_urls', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({ 'data': rawData })
+                });
+                const exData = await exRes.json();
+                
+                if (exData.error) throw new Error(exData.error);
+                if (!exData.urls || exData.urls.length === 0) throw new Error("No Instagram URLs found in the pasted data.");
+                
+                
+                
+                const count = document.getElementById('downloadCount').value;
+                const language = document.getElementById('aiLanguage').value;
+                
+                const batchRes = await fetch('/start_batch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ urls: exData.urls, count: count, language: language })
+                });
+                const batchData = await batchRes.json();
+                if (batchData.error) throw new Error(batchData.error);
+                
+                batchInProgress = true;
+                
+                // Show top progress bar
+                const topBar = document.getElementById('topProgressBar');
+                const topFill = document.getElementById('topProgFill');
+                const topText = document.getElementById('topProgText');
+                topBar.classList.remove('hidden');
+                topFill.style.width = '0%';
+                topText.innerHTML = '<svg class="animate-spin -ml-0.5 mr-1.5 h-3 w-3 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>0 / 0 videos';
+                document.getElementById('topProgShimmer').classList.remove('hidden');
+    
+
+                let trackedSummaries = 0;
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const statusRes = await fetch(`/batch_status/${batchData.batch_id}`);
+                        const statusData = await statusRes.json();
+                        if(statusData.error) { clearInterval(pollInterval); return; }
+                        
+                        // Update top bar
+                        const pct = statusData.total > 0 ? (statusData.completed / statusData.total) * 100 : 0;
+                        topFill.style.width = `${pct}%`;
+                        topText.innerHTML = `<svg class="animate-spin -ml-0.5 mr-1.5 h-3 w-3 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>${statusData.completed} / ${statusData.total} videos`;
+                        
+                        if (statusData.records && statusData.records.length > trackedSummaries) {
+                            for (let i = trackedSummaries; i < statusData.records.length; i++) {
+                                const rec = statusData.records[i];
+                                if (rec.ai_summary) {
+                                    globalSummaries.push(rec.ai_summary);
+                                    
+                                    addChatBubble(`
+                                        <details class="w-full cursor-pointer group bg-gray-50 border border-gray-200 rounded-lg p-3">
+                                            <summary class="font-semibold text-gray-800 list-none flex items-center justify-between outline-none">
+                                                <div class="flex items-center">
+                                                    <svg class="w-4 h-4 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                                    Video ${i+1} Summary Extracted
+                                                    <a href="${rec.url}" target="_blank" class="ml-3 text-xs text-blue-600 hover:underline font-mono bg-blue-50 px-2 py-1 rounded" onclick="event.stopPropagation()">View Source</a>
+                                                </div>
+                                                <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                            </summary>
+                                            <div class="mt-4 pt-4 border-t border-gray-200 text-sm text-gray-700 leading-relaxed cursor-text whitespace-pre-wrap">
+                                                ${rec.ai_summary}
+                                            </div>
+                                        </details>
+                                    `, false, true);
+                                    
+                                    sendBtn.disabled = false;
+                                }
+                            }
+                            trackedSummaries = statusData.records.length;
+                        }
+                        
+                        if (statusData.done) {
+                            clearInterval(pollInterval);
+                            batchInProgress = false;
+                document.getElementById('analyzeLoadingUI')?.remove();
+                            sendBtn.disabled = false;
+                            topText.innerHTML = `✅ ${statusData.total} / ${statusData.total} videos`;
+                            topFill.style.width = '100%';
+                            document.getElementById('topProgShimmer').classList.add('hidden');
+                            topFill.classList.remove('bg-black');
+                            topFill.classList.add('bg-green-500');
+                            document.getElementById('analyzeLoadingUI')?.remove();
+                            
+                            // Auto-hide top bar after 3 seconds
+                            setTimeout(() => { topBar.classList.add('hidden'); }, 3000);
+
+                            // SAVE TO HISTORY
+                            saveSession('analyze', `${statusData.total} videos`, {
+                                chatHTML: chatHistoryFlow.innerHTML,
+                                summaries: globalSummaries
+                            });
+                        }
+                    } catch(e) {}
+                }, 2000);
+                
+            } catch (error) {
+                addChatBubble(`<span class=\"text-red-600 font-bold\">Error:</span> ${error.message}`, false, true);
+                sendBtn.disabled = false;
+                batchInProgress = false;
+                document.getElementById('analyzeLoadingUI')?.remove();
+            }
+        };
+
+        // Also save after each chat message (update existing history entry)
+        const _origSendChat = sendChatMessage;
+        sendChatMessage = async function(msg) {
+            await _origSendChat(msg);
+            // Update history with latest chat state
+            if (activeHistoryId) {
+                const history = getHistory();
+                const entry = history.find(h => h.id === activeHistoryId);
+                if (entry && entry.type === 'analyze') {
+                    entry.data.chatHTML = chatHistoryFlow.innerHTML;
+                    entry.data.summaries = globalSummaries;
+                    saveHistory(history);
+                }
+            }
+        };
+
+        // Initialize history on page load
+        renderHistory();
+
+    </script>
+</body>
+</html>
